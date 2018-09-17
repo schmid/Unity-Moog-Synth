@@ -1,9 +1,5 @@
 ﻿using System;
 
-// License note: If LGPL is a problem, consider replacing with:
-// https://github.com/ddiakopoulos/MoogLadders/blob/master/src/SimplifiedModel.h
-
-
 // Based on https://github.com/ddiakopoulos/MoogLadders/blob/master/src/HuovilainenModel.h
 //
 // Based on implementation in CSound5 (LGPLv2.1)
