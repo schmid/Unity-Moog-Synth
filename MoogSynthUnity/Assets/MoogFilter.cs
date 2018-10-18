@@ -83,9 +83,10 @@
 //  output = y_d
 //
 // Quality notes:
-// Huovilainen suggests using oversampling to avoid artifacts. This
-// implementation does not, it is a straight forward implementation
-// of the Huovilainen formulas.
+//
+//  Huovilainen suggests using oversampling to avoid artifacts.
+//  He also suggests a half sample delay as phase compensation, which
+//  is not implemented yet.
 
 using static System.Math;
 
@@ -97,6 +98,7 @@ public class MoogFilter
 
     /// Config
     float reso, Fs;
+    int oversampling = 1; // 1 means don't oversample
 
     /// State
     double y_a, y_b, y_c, y_d;
@@ -104,6 +106,7 @@ public class MoogFilter
 
     /// Cache
     double s, v;
+    float cutoff;
 
     public MoogFilter(float sampleRate)
     {
@@ -116,10 +119,13 @@ public class MoogFilter
         for (int i = 0; i < n; ++i)
         {
             float x = samples[i]; // x = input sample
-            y_a += s * (Tanh(x - 4 * reso * y_d * v) - w_a);
-            w_a = Tanh(y_a * v); y_b += s * (w_a - w_b);
-            w_b = Tanh(y_b * v); y_c += s * (w_b - w_c);
-            w_c = Tanh(y_c * v); y_d += s * (w_c - Tanh(y_d * v));
+            for (int j = 0; j < oversampling; ++j)
+            {
+                y_a += s * (Tanh(x - 4 * reso * y_d * v) - w_a);
+                w_a = Tanh(y_a * v); y_b += s * (w_a - w_b);
+                w_b = Tanh(y_b * v); y_c += s * (w_b - w_c);
+                w_c = Tanh(y_c * v); y_d += s * (w_c - Tanh(y_d * v));
+            }
             samples[i] = (float)y_d; // y_d = output sample
         }
     }
@@ -130,10 +136,13 @@ public class MoogFilter
         for (int i = 0; i < sample_count; ++i)
         {
             float x = samples[idx]; // x = input sample
-            y_a += s * (Tanh(x - 4 * reso * y_d * v) - w_a);
-            w_a = Tanh(y_a * v); y_b += s * (w_a - w_b);
-            w_b = Tanh(y_b * v); y_c += s * (w_b - w_c);
-            w_c = Tanh(y_c * v); y_d += s * (w_c - Tanh(y_d * v));
+            for (int j = 0; j < oversampling; ++j)
+            {
+                y_a += s * (Tanh(x - 4 * reso * y_d * v) - w_a);
+                w_a = Tanh(y_a * v); y_b += s * (w_a - w_b);
+                w_b = Tanh(y_b * v); y_c += s * (w_b - w_c);
+                w_c = Tanh(y_c * v); y_d += s * (w_c - Tanh(y_d * v));
+            }
             samples[idx] = (float)y_d; // y_d = output sample
             idx += stride;
         }
@@ -146,6 +155,15 @@ public class MoogFilter
 
     public void SetCutoff(float c)
     {
-        s = c / C / Fs;
+        cutoff = c;
+        s = c / C / Fs / oversampling;
+    }
+
+    public void SetOversampling(int iterationCount)
+    {
+        oversampling = iterationCount;
+        if (oversampling < 1)
+            oversampling = 1;
+        SetCutoff(cutoff);
     }
 }

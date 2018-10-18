@@ -74,6 +74,8 @@ public class MoogSynth : MonoBehaviour
     public float filterEnvDecay;
     [Range(0, 1)]
     public float filterEnabled;
+    [Range(1, 4)]
+    public int oversampling = 1;
 
     [Header("Amplitude")]
     [Range(0, 1)]
@@ -163,6 +165,8 @@ public class MoogSynth : MonoBehaviour
         filter2.SetResonance(resonance);
         filter1.SetCutoff(cutoffFrequency * env01); // 0 Hz cutoff is bad
         filter2.SetCutoff(cutoffFrequency * env01);
+        filter1.SetOversampling(oversampling);
+        filter2.SetOversampling(oversampling);
 
         aenv.setAttackRate(aenv_attack * sample_rate);
         aenv.setDecayRate(aenv_decay * sample_rate);
