@@ -33,6 +33,7 @@ public class Sequencer : MonoBehaviour
 
     // LFOs
     [Header("LFO 1")]
+    public bool lfo1enabled = false;
     [Range(0, 6)]
     public int lfo1Param;
     [Range(0, 10000)]
@@ -41,6 +42,7 @@ public class Sequencer : MonoBehaviour
     public float lfo1Freq = 1;
 
     [Header("LFO 2")]
+    public bool lfo2enabled = false;
     [Range(0, 6)]
     public int lfo2Param;
     [Range(0, 10000)]
@@ -84,12 +86,18 @@ public class Sequencer : MonoBehaviour
             }
         }
 
-        lfo1.set_freq(lfo1Freq * 1024);
-        lfo2.set_freq(lfo2Freq * 1024);
-        lfo1.update();
-        lfo2.update();
-        synth.set_parameter(lfo1Param, lfo1BaseValue + lfo1.sin() * lfo1Strength);
-        synth.set_parameter(lfo2Param, lfo2BaseValue + lfo2.sin() * lfo2Strength);
+        if (lfo1enabled)
+        {
+            lfo1.set_freq(lfo1Freq * 1024);
+            lfo1.update();
+            synth.set_parameter(lfo1Param, lfo1BaseValue + lfo1.sin() * lfo1Strength);
+        }
+        if (lfo2enabled)
+        {
+            lfo2.set_freq(lfo2Freq * 1024);
+            lfo2.update();
+            synth.set_parameter(lfo2Param, lfo2BaseValue + lfo2.sin() * lfo2Strength);
+        }
 
         audioFrameCount++;
     }

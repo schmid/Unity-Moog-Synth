@@ -341,12 +341,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   synth: {fileID: 713009999}
-  sequence: feffffff000000000c000000000000001300000003000000000000000a000000
-  speed: 12
+  sequence: feffffff000000000c000000000000001300000003000000000000000a000000feffffff000000000a0000000c000000070000000e00000013000000fbffffff
+  speed: 5
   pitch: 32
+  lfo1enabled: 1
   lfo1Param: 0
   lfo1Strength: 4000
   lfo1Freq: 0.05
+  lfo2enabled: 1
   lfo2Param: 1
   lfo2Strength: 0.3
   lfo2Freq: 0.02
@@ -359,8 +361,8 @@ AudioEchoFilter:
   m_Enabled: 1
   m_Delay: 383
   m_DecayRatio: 0.5
-  m_WetMix: 0.3
-  m_DryMix: 0.7
+  m_WetMix: 0.2
+  m_DryMix: 0.8
 --- !u!1 &862859699
 GameObject:
   m_ObjectHideFlags: 0

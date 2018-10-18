@@ -1,129 +1,151 @@
-﻿using System;
+﻿// Copyright (c) 2018 Jakob Schmid
+//
+//  Permission is hereby granted, free of charge, to any person obtaining a copy
+//  of this software and associated documentation files (the "Software"), to deal
+//  in the Software without restriction, including without limitation the rights
+//  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//  copies of the Software, and to permit persons to whom the Software is
+//  furnished to do so, subject to the following conditions:
+//  
+//  The above copyright notice and this permission notice shall be included in all
+//  copies or substantial portions of the Software.
+//  
+//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//  SOFTWARE."
 
-// Based on https://github.com/ddiakopoulos/MoogLadders/blob/master/src/HuovilainenModel.h
+// Huovilainen moog filter:
 //
-// Based on implementation in CSound5 (LGPLv2.1)
-// https://github.com/csound/csound/blob/develop/COPYING
+//                      I_ctl          x(n) - 4 r y_d(n-1)
+//  y_a(n) = y_a(n-1) + ----- ( tanh ( ------------------- ) - W_a(n-1) )
+//                       C Fs                  2V_t
 //
-// Huovilainen developed an improved and physically correct model of the Moog
-// Ladder filter that builds upon the work done by Smith and Stilson. This model
-// inserts nonlinearities inside each of the 4 one-pole sections on account of the
-// smoothly saturating function of analog transistors. The base-emitter voltages of
-// the transistors are considered with an experimental value of 1.22070313 which
-// maintains the characteristic sound of the analog Moog. This model also permits
-// self-oscillation for resonances greater than 1. The model depends on five
-// hyperbolic tangent functions (tanh) for each sample, and an oversampling factor
-// of two (preferably higher, if possible). Although a more faithful
-// representation of the Moog ladder, these dependencies increase the processing
-// time of the filter significantly. Lastly, a half-sample delay is introduced for 
-// phase compensation at the final stage of the filter. 
+//                      I_ctl
+//  y_b(n) = y_b(n-1) + ----- ( W_a(n) - W_b(n-1) )
+//                       C Fs
 //
-// References: Huovilainen (2004), Huovilainen (2010), DAFX - Zolzer (ed) (2nd ed)
-// Original implementation: Victor Lazzarini for CSound5
+//                      I_ctl
+//  y_c(n) = y_c(n-1) + ----- ( W_b(n) - W_c(n-1) )
+//                       C Fs
 //
-// Considerations for oversampling: 
-// http://music.columbia.edu/pipermail/music-dsp/2005-February/062778.html
-// http://www.synthmaker.co.uk/dokuwiki/doku.php?id=tutorials:oversampling
+//                      I_ctl                  y_d(n-1)
+//  y_d(n) = y_d(n-1) + ----- ( W_c(n) - tanh( -------- ) )
+//                       C Fs                    2V_t
+//
+//
+//  where           x(n) : input
+//        y_{a,b,c,d}(n) : outputs of individual filter stages
+//                     r : resonance amount in ]0;1]
+//                 I_ctl : control current
+//                     C : capacitance ?
+//                   V_t : transistor thermal voltage (constant) ?
+//                    Fs : sample rate
+//
+//                               y_{a,b,c}(n)
+//          W_{a,b,c}(n) = tanh( ------------ )
+//                                   2Vt
+//
+//  also
+//
+//                   tanh x = -i tan( ix )
+//
+// - see Huovilainen's paper:
+//  'Non-linear Digital Implementation of the Moog Ladder Filter' (2004)
+//
+// Performance notes from the paper:
+//
+//   It can be seen that each stage uses as input the tanh of the output
+//   of the previous stage. This is also used by the previous stage
+//   during the next sample. The calculation result can be stored and
+//   thus only five tanh calculations per sample are required. These can
+//   be implemented efficiently with table lookups or polynomial 
+//   approximation.
+//
+// Algorithm:
+//
+//  x      = input sample
+//  reso   = resonance
+//  cutoff = cutoff frequency (I_ctl)
+//  Fs     = sample rate
+//  v      = 1 / (2 * V_t) = 0.5 * V_t
+//
+//  s = cutoff / C / Fs
+//
+//  y_a += s * ( tanh( x - 4 * reso * y_d * v ) - w_a
+//  w_a  = tanh( y_a * v ); y_b += s * ( w_a - w_b )
+//  w_b  = tanh( y_b * v ); y_c += s * ( w_b - w_c )
+//  w_c  = tanh( y_c * v ); y_d += s * ( w_c - tanh( y_d * v )
+//
+//  output = y_d
+//
+// Quality notes:
+// Huovilainen suggests using oversampling to avoid artifacts. This
+// implementation does not, it is a straight forward implementation
+// of the Huovilainen formulas.
+
+using static System.Math;
+
 public class MoogFilter
 {
-    double[] stage = new double[4];
-    double[] stageTanh = new double[3];
-    double[] delay = new double[6];
+    /// Static config
+    const float C = 1.0f; // ????
+    const float V_t = 1.22070313f; // From Diakopoulos
 
-    double thermal;
-    double tune;
-    double acr;
-    double resQuad;
+    /// Config
+    float reso, Fs;
 
-    float cutoff;
-    float resonance;
-    float sampleRate;
+    /// State
+    double y_a, y_b, y_c, y_d;
+    double w_a, w_b, w_c;
+
+    /// Cache
+    double s, v;
 
     public MoogFilter(float sampleRate)
     {
-        thermal = 0.000025;
-        Array.Clear(stage, 0, stage.Length);
-        Array.Clear(delay, 0, delay.Length);
-        Array.Clear(stageTanh, 0, stageTanh.Length);
-        SetCutoff(1000.0f);
-        SetResonance(0.10f);
-        this.sampleRate = sampleRate;
+        Fs = sampleRate;
+        v = V_t * 0.5f; // 1/2V_t
     }
 
-    void process_mono(float[] samples, uint n)
+    public void process_mono(float[] samples, uint n)
     {
-        for (int s = 0; s < n; ++s)
+        for (int i = 0; i < n; ++i)
         {
-            // Oversample
-            for (int j = 0; j < 2; j++)
-            {
-                float input = samples[s] - (float)(resQuad * delay[5]);
-                delay[0] = stage[0] = delay[0] + tune * (Math.Tanh(input * thermal) - stageTanh[0]);
-                for (int k = 1; k < 4; k++)
-                {
-                    input = (float)stage[k - 1];
-                    stage[k] = delay[k] + tune * ((stageTanh[k - 1] = Math.Tanh(input * thermal)) - (k != 3 ? stageTanh[k] : Math.Tanh(delay[k] * thermal)));
-                    delay[k] = stage[k];
-                }
-                // 0.5 sample delay for phase compensation
-                delay[5] = (stage[3] + delay[4]) * 0.5;
-                delay[4] = stage[3];
-            }
-            samples[s] = (float)delay[5];
+            float x = samples[i]; // x = input sample
+            y_a += s * (Tanh(x - 4 * reso * y_d * v) - w_a);
+            w_a = Tanh(y_a * v); y_b += s * (w_a - w_b);
+            w_b = Tanh(y_b * v); y_c += s * (w_b - w_c);
+            w_c = Tanh(y_c * v); y_d += s * (w_c - Tanh(y_d * v));
+            samples[i] = (float)y_d; // y_d = output sample
         }
-
     }
 
-    // Process samples[0], samples[0+stride*1], samples[0+stride*2], etc.
     public void process_mono_stride(float[] samples, int sample_count, int offset, int stride)
     {
-        for (int s = 0; s < sample_count; ++s)
+        int idx = offset;
+        for (int i = 0; i < sample_count; ++i)
         {
-            // Oversample
-            for (int j = 0; j < 2; j++)
-            {
-                float input = samples[s * stride] - (float)(resQuad * delay[5]);
-                delay[0] = stage[0] = delay[0] + tune * (Math.Tanh(input * thermal) - stageTanh[0]);
-                for (int k = 1; k < 4; k++)
-                {
-                    input = (float)stage[k - 1];
-                    stage[k] = delay[k] + tune * ((stageTanh[k - 1] = Math.Tanh(input * thermal))
-                               - (k != 3 ? stageTanh[k] : Math.Tanh(delay[k] * thermal)));
-                    delay[k] = stage[k];
-                }
-                // 0.5 sample delay for phase compensation
-                delay[5] = (stage[3] + delay[4]) * 0.5;
-                delay[4] = stage[3];
-            }
-            samples[s * stride + offset] = (float)delay[5];
+            float x = samples[idx]; // x = input sample
+            y_a += s * (Tanh(x - 4 * reso * y_d * v) - w_a);
+            w_a = Tanh(y_a * v); y_b += s * (w_a - w_b);
+            w_b = Tanh(y_b * v); y_c += s * (w_b - w_c);
+            w_c = Tanh(y_c * v); y_d += s * (w_c - Tanh(y_d * v));
+            samples[idx] = (float)y_d; // y_d = output sample
+            idx += stride;
         }
     }
 
     public void SetResonance(float r)
     {
-        if (r > 0.9f) r = 0.9f;
-        if (r < 0.0f) r = 0.0f;
-
-        resonance = r;
-        resQuad = 4.0 * resonance * acr;
+        reso = r;
     }
 
     public void SetCutoff(float c)
     {
-        if (c < 0.01f) c = 0.01f;
-
-        cutoff = c;
-
-        double fc = cutoff / sampleRate;
-        double f = fc * 0.5; // oversampled 
-        double fc2 = fc * fc;
-        double fc3 = fc * fc * fc;
-
-        double fcr = 1.8730 * fc3 + 0.4955 * fc2 - 0.6490 * fc + 0.9988;
-        acr = -3.9364 * fc2 + 1.8409 * fc + 0.9968;
-
-        tune = (1.0 - Math.Exp(-((2 * Math.PI) * f * fcr))) / thermal;
-
-        SetResonance(resonance);
+        s = c / C / Fs;
     }
 }

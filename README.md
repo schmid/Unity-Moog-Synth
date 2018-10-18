@@ -2,7 +2,7 @@
 
 This is an example of a real-time Unity synthesizer with a Moog filter simulation.
 
-It is a monophonic pulse-width modulated square wave with a sub sine wave (one octave lower), with a resonant Moog-simulation filter based on the CSound implementation of the Huovilainen model. The filter frequency is controlled by a LFO-based envelope, and the amplitude is controlled by an ADSR envelope.
+It is a monophonic pulse-width modulated square wave with a sub sine wave (one octave lower), with a resonant Moog-simulation filter based on the Huovilainen model. The filter frequency is controlled by a LFO-based envelope, and the amplitude is controlled by an ADSR envelope.
 
 # Limitations
 
