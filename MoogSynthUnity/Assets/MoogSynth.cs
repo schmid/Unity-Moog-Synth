@@ -24,19 +24,6 @@ using UnityEngine;
 [RequireComponent(typeof(AudioSource))]
 public class MoogSynth : MonoBehaviour
 {
-    private void Start()
-    {
-        init(1, 48000);
-    }
-
-    private void OnAudioFilterRead(float[] data, int channels)
-    {
-        if (channels == 2)
-        {
-            render_float32_stereo_interleaved(data, data.Length / 2);
-        }
-    }
-
     enum Parameters
     {
     	Cutoff = 0,
@@ -116,9 +103,18 @@ public class MoogSynth : MonoBehaviour
     float[] freqtab = new float[128];
 
 
-    private float midi2freq(int note, int octave)
+    /// Unity
+    private void Start()
     {
-        return 32.70319566257483f * Mathf.Pow(2.0f, note / 12.0f + octave);
+        init(1, 48000);
+    }
+
+    private void OnAudioFilterRead(float[] data, int channels)
+    {
+        if (channels == 2)
+        {
+            render_float32_stereo_interleaved(data, data.Length / 2);
+        }
     }
 
     public void init(int queue_length, int sample_rate)
@@ -292,5 +288,11 @@ public class MoogSynth : MonoBehaviour
             case (int)Parameters.AENV_release  : return aenv_release;
             default: return -1.0f;
         }
+    }
+
+    /// Internals
+    private float midi2freq(int note, int octave)
+    {
+        return 32.70319566257483f * Mathf.Pow(2.0f, note / 12.0f + octave);
     }
 };
