@@ -21,25 +21,25 @@ Here is an example of how to compute time stamps corresponding to a given tempo 
 
     void Start()
     {
-	tempo_smpPerNote = (Int64)(60 * AudioSettings.outputSampleRate / tempo_bpm);
+        tempo_smpPerNote = (Int64)(60 * AudioSettings.outputSampleRate / tempo_bpm);
 
-	// First note is played at a reasonable point in the near future
-	nextNoteTime = synth.GetTime_smp() + buffertime; // as soon as possible
+        // First note is played at a reasonable point in the near future
+        nextNoteTime = synth.GetTime_smp() + buffertime; // as soon as possible
     }
 
     void Update()
     {
         Int64 time = synth.GetTime_smp();
 
-	// Time to queue a new note?
-	while(time + bufferTime >= nextNoteTime)
-	{
-	    int pitch = UnityEngine.Random.Range(30,90);
-	    synth.queue_event(EventQueue.EventType.Note_on, pitch, nextNoteTime);
+        // Time to queue a new note?
+        while(time + bufferTime >= nextNoteTime)
+        {
+            int pitch = UnityEngine.Random.Range(30,90);
+            synth.queue_event(EventQueue.EventType.Note_on, pitch, nextNoteTime);
 
-	    // From here on, all notes are sample accurate in relation to the first note
-	    noteOnTime += tempo_smpPerNote;
-	}
+            // From here on, all notes are sample accurate in relation to the first note
+            noteOnTime += tempo_smpPerNote;
+        }
     }
 
 
