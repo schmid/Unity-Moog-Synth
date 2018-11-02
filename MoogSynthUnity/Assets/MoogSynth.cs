@@ -51,11 +51,15 @@ public class MoogSynth : MonoBehaviour
     public enum FilterType
     {
         Schmid,
+#if LAZZARINI_FILTER
         Lazzarini
+#endif
     }
 
     MoogFilter filter1, filter2;
+#if LAZZARINI_FILTER
     MoogFilter_Lazzarini filter1Laz, filter2Laz;
+#endif
 
     // Parameters
     [Header("Filter")]
@@ -284,8 +288,10 @@ public class MoogSynth : MonoBehaviour
 
         filter1 = new MoogFilter(sample_rate);
         filter2 = new MoogFilter(sample_rate);
+#if LAZZARINI_FILTER
         filter1Laz = new MoogFilter_Lazzarini(sample_rate);
         filter2Laz = new MoogFilter_Lazzarini(sample_rate);
+#endif
 
         queue = new EventQueue(QueueCapacity);
 
@@ -324,6 +330,7 @@ public class MoogSynth : MonoBehaviour
             filter1.SetOversampling(oversampling);
             filter2.SetOversampling(oversampling);
         }
+#if LAZZARINI_FILTER
         else if (filterType == FilterType.Lazzarini)
         {
             filter1Laz.SetResonance(resonance);
@@ -331,6 +338,7 @@ public class MoogSynth : MonoBehaviour
             filter1Laz.SetCutoff(cutoffFrequency * env01);
             filter2Laz.SetCutoff(cutoffFrequency * env01);
         }
+#endif
 
         aenv.setAttackRate(aenv_attack * sample_rate);
         aenv.setDecayRate(aenv_decay * sample_rate);
@@ -435,11 +443,13 @@ public class MoogSynth : MonoBehaviour
                 filter1.process_mono_stride(buffer, sample_frames, 0, 2);
                 filter2.process_mono_stride(buffer, sample_frames, 1, 2);
             }
+#if LAZZARINI_FILTER
             else if (filterType == FilterType.Lazzarini)
             {
                 filter1Laz.process_mono_stride(buffer, sample_frames, 0, 2);
                 filter2Laz.process_mono_stride(buffer, sample_frames, 1, 2);
             }
+#endif
         }
     }
 
