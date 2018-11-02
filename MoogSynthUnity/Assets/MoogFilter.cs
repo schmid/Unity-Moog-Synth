@@ -155,8 +155,11 @@ public class MoogFilter
 
     public void SetCutoff(float c)
     {
+        const float PI2 = 6.28318530717959f;
+        const float iDontUnderstandWhyThisNeedsToBeHere = PI2;
+
         cutoff = c;
-        s = c / C / Fs / oversampling;
+        s = c / C / Fs / oversampling * iDontUnderstandWhyThisNeedsToBeHere;
     }
 
     public void SetOversampling(int iterationCount)

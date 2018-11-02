@@ -24,35 +24,42 @@ using UnityEngine;
 [RequireComponent(typeof(AudioSource))]
 public class MoogSynth : MonoBehaviour
 {
-    enum Parameters
+    public enum Parameters
     {
-    	Cutoff = 0,
-    	Resonance,
-    	Decay,
-    	Filter_enabled,
+        Cutoff = 0,
+        Resonance,
+        Decay,
+        Filter_enabled,
 
-    	Square_amp,
-    	Sub_amp,
+        Square_amp,
+        Sub_amp,
 
-    	PWM_str,
-    	PWM_freq,
+        PWM_str,
+        PWM_freq,
 
-    	AENV_attack,
-    	AENV_decay,
-    	AENV_sustain,
-    	AENV_release,
+        AENV_attack,
+        AENV_decay,
+        AENV_sustain,
+        AENV_release,
     };
-    public enum Event_type
+    public enum Modulators
     {
-        None = 0,
-        Note_on = 1,
-        Note_off = 2,
+        ENV1 = 0,
+        LFO1,
+        LFO2,
     };
+    public enum FilterType
+    {
+        Schmid,
+        Lazzarini
+    }
 
     MoogFilter filter1, filter2;
+    MoogFilter_Lazzarini filter1Laz, filter2Laz;
 
     // Parameters
     [Header("Filter")]
+    public FilterType filterType = FilterType.Schmid;
     [Range(10, 24000)]
     public float cutoffFrequency;
     [Range(0, 1)]
@@ -65,10 +72,19 @@ public class MoogSynth : MonoBehaviour
     public int oversampling = 1;
 
     [Header("Amplitude")]
+    //[Range(0, 1)]
+    //public float squareAmp = 0.4f;
     [Range(0, 1)]
-    public float squareAmp = 0.4f;
+    public float squareAmp = 0.0f;
+    [Range(0, 1)]
+    public float sawAmp = 0.0f;
     [Range(0, 1)]
     public float subSine = 0.4f;
+
+    //[Range(0, 1)]
+    //public float sawDPWAmp = 0.4f;
+    //[Range(0, 1)]
+    //public float sawAmp = 0.4f;
 
     [Header("Pulse-width Modulation")]
     [Range(0, 1)]
@@ -86,22 +102,126 @@ public class MoogSynth : MonoBehaviour
     [Range(0, 1)]
     public float aenv_release;
 
+    [HideInInspector]
+    public float[] modulationMatrix = null;
+
     // Synth state
     Phaser osc1, osc2, lfo;
     Phaser fenv;
     ADSR aenv;
     // when note_is_on = true, wait for current_delta samples and set note_is_playing = true
-    bool note_is_playing;
+    //bool note_is_playing;
 
     // Current MIDI evt
     bool note_is_on;
     int current_note;
     int current_velocity;
 
+    EventQueue queue;
+
     int sample_rate;
 
     float[] freqtab = new float[128];
 
+    private const int QueueCapacity = 320;
+    private float[] lastBuffer = new float[2048];
+    private readonly object bufferMutex = new object();
+    private bool debugBufferEnabled = false;
+
+    private EventQueue.QueuedEvent nextEvent;
+    private bool eventIsWaiting = false;
+
+
+    /// Public interface
+    public bool queue_event(EventQueue.EventType evtType, int data, Int64 time_smp)
+    {
+        //queueLock = true;
+        bool result = queue.Enqueue(evtType, data, time_smp);
+        //queueLock = false;
+        return result;
+    }
+    public void ClearQueue()
+    {
+        queue.Clear();
+    }
+    public bool set_parameter(int param_id, float value)
+    {
+        switch (param_id)
+        {
+            case (int)Parameters.Cutoff: cutoffFrequency = value; break;
+            case (int)Parameters.Resonance: resonance = value; break;
+            case (int)Parameters.Decay: filterEnvDecay = value; break;
+            case (int)Parameters.Filter_enabled: filterEnabled = value; break;
+            case (int)Parameters.Square_amp: squareAmp = value; break;
+            case (int)Parameters.Sub_amp: subSine = value; break;
+            case (int)Parameters.PWM_str: pwmStrength = value; break;
+            case (int)Parameters.PWM_freq: pwmFrequency = value; break;
+            case (int)Parameters.AENV_attack: aenv_attack = value; break;
+            case (int)Parameters.AENV_decay: aenv_decay = value; break;
+            case (int)Parameters.AENV_sustain: aenv_sustain = value; break;
+            case (int)Parameters.AENV_release: aenv_release = value; break;
+        }
+        return true;
+    }
+    public float get_parameter(int param_id)
+    {
+        switch (param_id)
+        {
+            case (int)Parameters.Cutoff: return cutoffFrequency;
+            case (int)Parameters.Resonance: return resonance;
+            case (int)Parameters.Decay: return filterEnvDecay;
+            case (int)Parameters.Filter_enabled: return filterEnabled;
+            case (int)Parameters.Square_amp: return squareAmp;
+            case (int)Parameters.Sub_amp: return subSine;
+            case (int)Parameters.PWM_str: return pwmStrength;
+            case (int)Parameters.PWM_freq: return pwmFrequency;
+            case (int)Parameters.AENV_attack: return aenv_attack;
+            case (int)Parameters.AENV_decay: return aenv_decay;
+            case (int)Parameters.AENV_sustain: return aenv_sustain;
+            case (int)Parameters.AENV_release: return aenv_release;
+            default: return -1.0f;
+        }
+    }
+
+    // This should only be called from OnAudioFilterRead
+    public void HandleEventNow(EventQueue.QueuedEvent currentEvent)
+    {
+        note_is_on = (currentEvent.eventType == EventQueue.EventType.Note_on);
+
+        if (note_is_on)
+        {
+            current_note = currentEvent.data;
+            osc1.phase = 0u;
+            osc2.phase = 0u;
+            fenv.restart();
+            update_params();
+        }
+
+        aenv.gate(note_is_on);
+    }
+
+    public Int64 GetTime_smp()
+    {
+        //return masterClock_smp;
+        return time_smp;
+    }
+
+    /// Debug
+    public void SetDebugBufferEnabled(bool enabled)
+    {
+        this.debugBufferEnabled = enabled;
+    }
+    public float[] GetLastBuffer()
+    {
+        return lastBuffer;
+    }
+    public object GetBufferMutex()
+    {
+        return bufferMutex;
+    }
+
+    //public bool bufferLock = false;
+    //public bool queueLock = false;
 
     /// Unity
     private void Start()
@@ -109,27 +229,49 @@ public class MoogSynth : MonoBehaviour
         init(1, 48000);
     }
 
+    //private static MoogSynth clockMaster = null;
+    //private bool isClockMaster = false;
+    //private Int64 masterClock_smp = 0;
+    private Int64 time_smp = 0;
+
     private void OnAudioFilterRead(float[] data, int channels)
     {
+        //if (clockMaster == null)
+        //{
+        //    clockMaster = this;
+        //    isClockMaster = true;
+        //    masterClock_smp = 0;
+        //}
+        //else if (isClockMaster) // not first frame, increment
+        //{
+        //    masterClock_smp += sampleFrames;
+        //}
+
         if (channels == 2)
         {
-            render_float32_stereo_interleaved(data, data.Length / 2);
+            int sampleFrames = data.Length / 2;
+            render_float32_stereo_interleaved(data, sampleFrames);
+
+            if (debugBufferEnabled)
+            {
+                //bufferLock = true;
+                lock (bufferMutex)
+                {
+                    Array.Copy(data, lastBuffer, data.Length);
+                }
+                //bufferLock = false;
+            }
         }
     }
 
-    public void init(int queue_length, int sample_rate)
+    /// Internal
+    private void init(int queue_length, int sample_rate)
     {
         osc1 = new Phaser();
         osc2 = new Phaser();
         lfo = new Phaser();
         fenv = new Phaser();
         aenv = new ADSR();
-
-        osc1.phase = 0u;
-        osc2.phase = 0u;
-        lfo.phase = 0u;
-
-        aenv.reset();
 
         note_is_on = false;
 
@@ -142,7 +284,23 @@ public class MoogSynth : MonoBehaviour
 
         filter1 = new MoogFilter(sample_rate);
         filter2 = new MoogFilter(sample_rate);
+        filter1Laz = new MoogFilter_Lazzarini(sample_rate);
+        filter2Laz = new MoogFilter_Lazzarini(sample_rate);
 
+        queue = new EventQueue(QueueCapacity);
+
+        update_params();
+
+        Reset();
+    }
+
+    private void Reset()
+    {
+        osc1.phase = 0u;
+        osc2.phase = 0u;
+        lfo.phase = 0u;
+
+        aenv.reset();
         update_params();
     }
 
@@ -157,12 +315,22 @@ public class MoogSynth : MonoBehaviour
 
         float env01 = fenv.quad_down01();
 
-        filter1.SetResonance(resonance);
-        filter2.SetResonance(resonance);
-        filter1.SetCutoff(cutoffFrequency * env01); // 0 Hz cutoff is bad
-        filter2.SetCutoff(cutoffFrequency * env01);
-        filter1.SetOversampling(oversampling);
-        filter2.SetOversampling(oversampling);
+        if (filterType == FilterType.Schmid)
+        {
+            filter1.SetResonance(resonance);
+            filter2.SetResonance(resonance);
+            filter1.SetCutoff(cutoffFrequency * env01); // 0 Hz cutoff is bad
+            filter2.SetCutoff(cutoffFrequency * env01);
+            filter1.SetOversampling(oversampling);
+            filter2.SetOversampling(oversampling);
+        }
+        else if (filterType == FilterType.Lazzarini)
+        {
+            filter1Laz.SetResonance(resonance);
+            filter2Laz.SetResonance(resonance);
+            filter1Laz.SetCutoff(cutoffFrequency * env01);
+            filter2Laz.SetCutoff(cutoffFrequency * env01);
+        }
 
         aenv.setAttackRate(aenv_attack * sample_rate);
         aenv.setDecayRate(aenv_decay * sample_rate);
@@ -170,35 +338,77 @@ public class MoogSynth : MonoBehaviour
         aenv.setSustainLevel(aenv_sustain);
     }
 
-    public void render_float32_stereo_interleaved(float[] buffer, int sample_frames)
+    private void render_float32_stereo_interleaved(float[] buffer, int sample_frames)
     {
         int smp = 0;
         int buf_idx = 0;
-        if (note_is_on)
+        //int time_smp = masterClock_smp;
+
+        update_params();
+
+        // Cache this for the entire buffer, we don't need to check for
+        // every sample if new events have been enqueued.
+        // This assumes that no other metdods call GetFrontAndDequeue.
+        int queueSize = queue.GetSize();
+
+        // Render loop
+        for (; smp < sample_frames; ++smp)
         {
-
-            // Wait for current_delta
-            //if (note_is_playing == false)
-            //{
-            //	for (smp = 0; smp < sample_frames && smp < current_delta; ++smp)
-            //	{
-            //		(*buf_ptr++) = 0.0f;
-            //		(*buf_ptr++) = 0.0f;
-            //	}
-            //	note_is_playing = true;
-            //}
-
-            update_params();
-
-            // Render loop
-            for (; smp < sample_frames; ++smp)
+            // Event handling
+            // This is sample accurate event handling.
+            // If it's too slow, we can decide to only handle 1 event per buffer and
+            // move this code outside the loop.
+            while(true)
             {
+                if (eventIsWaiting == false && queueSize > 0)
+                {
+                    //queueLock = true;
+                    if (queue.GetFrontAndDequeue(ref nextEvent))
+                    {
+                        eventIsWaiting = true;
+                        queueSize--;
+                    }
+                    //queueLock = false;
+                }
 
+                if (eventIsWaiting)
+                {
+                    if (nextEvent.time_smp <= time_smp)
+                    {
+                        HandleEventNow(nextEvent);
+                        eventIsWaiting = false;
+                    }
+                    else
+                    {
+                        // we assume that queued events are in order, so if it's not
+                        // now, we stop getting events from the queue
+                        break;
+                    }
+                }
+                else
+                {
+                    // no more events
+                    break;
+                }
+            }
+
+            // Rendering
+            if (note_is_on)
+            {
                 // Render sample
-                float amp = aenv.process() * 0.5f * squareAmp;
+                float amp = aenv.process() * 0.5f;
+
                 float lfo_val = lfo.sin() * 0.48f * pwmStrength + 0.5f;
-                float sample = (osc1.square(lfo_val) + osc2.sin() * subSine)
-                                * (current_velocity * 0.0079f) * amp;
+
+                //float saw = osc1.saw() * sawAmp;
+                //float square = osc1.square(lfo_val) * squareAmp;
+                //float sawDPW = osc1.sawDPW() * sawDPWAmp;
+                float sine = osc2.sin() * subSine;
+                float sawPolyBLEP = osc1.sawPolyBLEP() * sawAmp;
+                float squarePolyBLEP = osc1.squarePolyBLEP(lfo_val) * squareAmp;
+
+                float sample = (sine + sawPolyBLEP + squarePolyBLEP)
+                    * /*(current_velocity * 0.0079f) **/ amp;
 
                 buffer[buf_idx++] = sample;
                 buffer[buf_idx++] = sample;
@@ -209,84 +419,27 @@ public class MoogSynth : MonoBehaviour
                 lfo.update();
                 fenv.update_oneshot();
             }
-
-            // Filter entire buffer
-            if (filterEnabled >= 0.5f)
-            {
-            	filter1.process_mono_stride(buffer, sample_frames, 0, 2);
-            	filter2.process_mono_stride(buffer, sample_frames, 1, 2);
-            }
-        }
-        else
-        {
-            for (; smp < sample_frames; ++smp)
+            else
             {
                 buffer[buf_idx++] = 0.0f;
                 buffer[buf_idx++] = 0.0f;
             }
+            time_smp++;
         }
-    }
 
-    public bool queue_event(Event_type evt_type, int data)
-    {
-        note_is_on = (evt_type == Event_type.Note_on);
-        if (note_is_on)
+        // Filter entire buffer
+        if (filterEnabled >= 0.5f)
         {
-            current_note = data;
-        }
-        current_velocity = 127;
-
-        note_is_playing = note_is_on;
-        if (note_is_on)
-        {
-            osc1.phase = 0u;
-            osc2.phase = 0u;
-            fenv.restart();
-        }
-        aenv.gate(note_is_on);
-
-        note_is_on = true;
-
-        return true;
-    }
-
-    public bool set_parameter(int param_id, float value)
-    {
-        switch (param_id)
-        {
-            case (int)Parameters.Cutoff        : cutoffFrequency = value; break;
-            case (int)Parameters.Resonance     : resonance = value;       break;
-            case (int)Parameters.Decay         : filterEnvDecay = value;  break;
-            case (int)Parameters.Filter_enabled: filterEnabled = value;   break;
-            case (int)Parameters.Square_amp    : squareAmp = value;       break;
-            case (int)Parameters.Sub_amp       : subSine = value;         break;
-            case (int)Parameters.PWM_str       : pwmStrength = value;     break;
-            case (int)Parameters.PWM_freq      : pwmFrequency = value;    break;
-            case (int)Parameters.AENV_attack   : aenv_attack = value;     break;
-            case (int)Parameters.AENV_decay    : aenv_decay = value;      break;
-            case (int)Parameters.AENV_sustain  : aenv_sustain = value;    break;
-            case (int)Parameters.AENV_release  : aenv_release = value;    break;
-        }
-        return true;
-    }
-
-    public float get_parameter(int param_id)
-    {
-        switch (param_id)
-        {
-            case (int)Parameters.Cutoff        : return cutoffFrequency;
-            case (int)Parameters.Resonance     : return resonance;
-            case (int)Parameters.Decay         : return filterEnvDecay;
-            case (int)Parameters.Filter_enabled: return filterEnabled;
-            case (int)Parameters.Square_amp    : return squareAmp;
-            case (int)Parameters.Sub_amp       : return subSine;
-            case (int)Parameters.PWM_str       : return pwmStrength;
-            case (int)Parameters.PWM_freq      : return pwmFrequency;
-            case (int)Parameters.AENV_attack   : return aenv_attack;
-            case (int)Parameters.AENV_decay    : return aenv_decay;
-            case (int)Parameters.AENV_sustain  : return aenv_sustain;
-            case (int)Parameters.AENV_release  : return aenv_release;
-            default: return -1.0f;
+            if (filterType == FilterType.Schmid)
+            {
+                filter1.process_mono_stride(buffer, sample_frames, 0, 2);
+                filter2.process_mono_stride(buffer, sample_frames, 1, 2);
+            }
+            else if (filterType == FilterType.Lazzarini)
+            {
+                filter1Laz.process_mono_stride(buffer, sample_frames, 0, 2);
+                filter2Laz.process_mono_stride(buffer, sample_frames, 1, 2);
+            }
         }
     }
 

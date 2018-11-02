@@ -41,6 +41,7 @@ class Phaser
     const float PHASE_MAX = 4294967296;
     float amp = 1.0f;
     UInt32 freq__ph_p_smp = 0u;
+    float freq__hz = 0.0f;
     bool is_active = true;
 
     public Phaser(float amp = 1.0f)
@@ -71,20 +72,106 @@ class Phaser
     }
     public void set_freq(float freq__hz, int sample_rate = 48000)
     {
+        this.freq__hz = freq__hz;
         float freq__ppsmp = freq__hz / sample_rate; // periods per sample
         freq__ph_p_smp = (uint)(freq__ppsmp * PHASE_MAX);
+
+        // // sawDPW stuff
+        // dpwScale = 48000 / (4 * freq__hz * (1 - freq__hz / 48000));
+        // // recompute z^-1 to avoid horrible clicks when changing frequency
+        // float ph01 = (phase - freq__ph_p_smp) / PHASE_MAX;
+        // float bphase = 2.0f * ph01 - 1.0f;  // phasor in [-1;+1]       : saw
+        // float sq = bphase * bphase;         // squared saw             : parabola
+        // float dsq = sq - z1;                // differentiated parabola : bandlimited saw
+        // z1 = sq;                            // store next frame's z^-1
     }
+
+    /// Basic oscillators
+    /// <returns></returns>
+    // Library sine
+    // - possibly slow
     public float sin()
     {
         if (is_active == false) return 0.0f;
         float ph01 = phase / PHASE_MAX;
         return Mathf.Sin(ph01 * 6.28318530717959f) * amp;
     }
-    public float square(float pulse_width)
+
+    // Differentiated Polynomial Waveform (DPW)
+    // Based on Valimaki & Huovilainen: 'Oscillator and Filter Algorithms for Virtual Analog Synthesis'
+    // 2nd degree, meaning that the polynomial is 2nd degree
+    // public float sawDPW()
+    // {
+    //     if (is_active == false) return 0.0f;
+    //     float ph01 = phase / PHASE_MAX;
+    //     float bphase = 2.0f * ph01 - 1.0f;  // phasor in [-1;+1]       : saw
+    //     float sq = bphase * bphase;         // squared saw             : parabola
+    //     float dsq = sq - z1;                // differentiated parabola : bandlimited saw
+    //     z1 = sq;                            // store next frame's z^-1
+    //     return dsq * dpwScale * amp;
+    // }
+    // float z1 = 0;
+    // float dpwScale = 1.0f;
+
+    /// PolyBLEP oscillators
+    // Polynomial Band-Limited Step Function (PolyBLEP)
+    // Based on Valimaki 2007: 'Antialiasing Oscillators in Subtractive Synthesis'
+    // and https://steemit.com/ableton/@metafunction/all-about-digital-oscillators-part-2-blits-and-bleps
+    public float sawPolyBLEP()
     {
+        if (is_active == false) return 0.0f;
         float ph01 = phase / PHASE_MAX;
-        return ph01 > pulse_width ? amp : -amp;
+        float result = 2.0f * ph01 - 1.0f; // phasor in [-1;+1] : saw
+
+        result -= polyBLEP(ph01);
+        return result;
     }
+
+    // FIXME: DC offset when pulseWidth != 0.5, should be fixable by a simple offset
+    public float squarePolyBLEP(float pulseWidth)
+    {
+        if (is_active == false) return 0.0f;
+        float ph01 = phase / PHASE_MAX;
+
+        float value;
+        if (ph01 < pulseWidth)
+        {
+            value = amp;
+        }
+        else
+        {
+            value = -amp;
+        }
+        value += polyBLEP(ph01);                       // Layer output of Poly BLEP on top (flip)
+        value -= polyBLEP((ph01 + 1.0f - pulseWidth) % 1.0f); // Layer output of Poly BLEP on top (flop)
+
+        return value;
+    }
+
+    private float polyBLEP(float t)
+    {
+        // phase step in [0;1]
+        float dt = freq__ph_p_smp / PHASE_MAX;
+
+        // t-t^2/2 +1/2
+        // 0 < t <= 1
+        // discontinuities between 0 & 1
+        if (t < dt) // one sample width at the start of period
+        {
+            t /= dt;
+            return t + t - t * t - 1.0f;
+        }
+        // t^2/2 +t +1/2
+        // -1 <= t <= 0
+        // discontinuities between -1 & 0
+        else if (t > 1.0f - dt) // one sample width at the end of period
+        {
+            t = (t - 1.0f) / dt;
+            return t * t + t + t + 1.0f;
+        }
+        else return 0.0f;
+    }
+
     // (1-x)^2
     // s=2: parabolic
     public float quad_down01()
@@ -93,5 +180,21 @@ class Phaser
         float ph01 = phase / PHASE_MAX;
         float x = 1.0f - ph01;
         return x * x;
+    }
+
+    /// Obsolete
+    // Non-bandlimited square, will sound very noisy at higher frequencies (aliasing)
+    public float squareUgly(float pulse_width)
+    {
+        float ph01 = phase / PHASE_MAX;
+        return ph01 > pulse_width ? amp : -amp;
+    }
+
+    // Non-bandlimited saw, will sound very noisy at higher frequencies (aliasing)
+    public float sawUgly()
+    {
+        float ph01 = phase / PHASE_MAX;
+        float bphase = 2.0f * ph01 - 1.0f;
+        return bphase * amp;
     }
 };

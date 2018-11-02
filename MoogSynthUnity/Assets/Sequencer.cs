@@ -18,87 +18,75 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //  SOFTWARE."
 
+using System;
 using UnityEngine;
 
 public class Sequencer : MonoBehaviour
 {
-    /// Config
+    /// Static config
+    private const Int64 queueBufferTime = 4096; // queue this amount of samples ahead
+
     public MoogSynth synth;
+    [Range(1, 2000)]
+    public float tempo = 60;
+    [Range(1, 32)]
+    public int tempoSubdivision = 1;
+    public int[] pitch;
+    [Range(0,120)]
+    public int transpose = 48;
+    [Range(0,120)]
+    public int pitchRandomize = 0;
+    private Int64 nextNoteTime = 0;
 
-    [Header("Note: modifying sequence length while running can lead to errors")]
-    public int[] sequence = null;
-    public int speed = 10;
-    [Range(0, 256)]
-    public int pitch = 32;
+    private float tempoOld = 60;
 
-    // LFOs
-    [Header("LFO 1")]
-    public bool lfo1enabled = false;
-    [Range(0, 6)]
-    public int lfo1Param;
-    [Range(0, 10000)]
-    public float lfo1Strength;
-    [Range(0, 10)]
-    public float lfo1Freq = 1;
+    private int seqIdx = 0;
 
-    [Header("LFO 2")]
-    public bool lfo2enabled = false;
-    [Range(0, 6)]
-    public int lfo2Param;
-    [Range(0, 10000)]
-    public float lfo2Strength;
-    [Range(0, 10)]
-    public float lfo2Freq = 1;
-
-    /// State
-    private float lfo1BaseValue;
-    private float lfo2BaseValue;
-    private int sequenceIdx = 0;
-    private int audioFrameCount = 0;
-
-    /// Components
-    private Phaser lfo1;
-    private Phaser lfo2;
-
-
-    private void Awake()
+    private void Start()
     {
-        lfo1 = new Phaser();
-        lfo2 = new Phaser();
-        lfo1BaseValue = synth.get_parameter(lfo1Param);
-        lfo2BaseValue = synth.get_parameter(lfo2Param);
+        if (synth == null)
+            synth = GetComponent<MoogSynth>();
+        nextNoteTime = synth.GetTime_smp() + queueBufferTime;
     }
 
-    // No audio is rendered in this method.
-    // This code is only here to get updates synchronized in audio frame time.
-    private void OnAudioFilterRead(float[] data, int channels)
+    private void Update()
     {
-        bool playNote = (audioFrameCount % speed) == 0;
-        if (playNote)
-        {
-            int note = sequence[sequenceIdx++];
-            sequenceIdx %= sequence.Length;
-            if (note != -1)
-            {
-                note += pitch;
+        int sampleRate = AudioSettings.outputSampleRate;
+        tempo = Mathf.Clamp(tempo, 1, 2000);
+        // sample rate: Fs = x smp/s
+        // tempo      : x beat/m = x/60 beat/s = 60/x s/beat = 60 * Fs / x smp/beat
+        Int64 tempo_smpPerNote = (Int64)(60 * sampleRate / tempo / tempoSubdivision);
 
-                synth.queue_event(MoogSynth.Event_type.Note_on, note);
+        if (tempo != tempoOld)
+        {
+            nextNoteTime = synth.GetTime_smp() + queueBufferTime;
+            synth.ClearQueue();
+            tempoOld = tempo;
+        }
+
+        Int64 time = synth.GetTime_smp();
+        bool queueSuccess = false; 
+        while(time + queueBufferTime >= nextNoteTime)
+        {
+            int seqLength = pitch.Length;
+            if (seqIdx >= seqLength)
+            {
+                seqIdx = 0;
+                Debug.Log("seqIdx out of range, resetting");
+            }
+            int notePitch = pitch[seqIdx] + transpose + UnityEngine.Random.Range(-pitchRandomize, pitchRandomize);
+            seqIdx = (seqIdx + 1) % seqLength;
+
+            Int64 noteOnTime = nextNoteTime;
+            Int64 noteOffTime = nextNoteTime + (Int64)(tempo_smpPerNote * 0.75f);
+            queueSuccess = synth.queue_event(EventQueue.EventType.Note_on, notePitch, noteOnTime);
+            //queueSuccess &= synth.queue_event(EventQueue.EventType.Note_off, 0, noteOffTime);
+            nextNoteTime += tempo_smpPerNote;
+            if (queueSuccess == false)
+            {
+                Debug.LogError("Event enqueue failed", this);
+                break;
             }
         }
-
-        if (lfo1enabled)
-        {
-            lfo1.set_freq(lfo1Freq * 1024);
-            lfo1.update();
-            synth.set_parameter(lfo1Param, lfo1BaseValue + lfo1.sin() * lfo1Strength);
-        }
-        if (lfo2enabled)
-        {
-            lfo2.set_freq(lfo2Freq * 1024);
-            lfo2.update();
-            synth.set_parameter(lfo2Param, lfo2BaseValue + lfo2.sin() * lfo2Strength);
-        }
-
-        audioFrameCount++;
     }
 }
