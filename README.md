@@ -1,5 +1,7 @@
 # MoogSynth
 
+![screenshot](https://github.com/schmid/MoogSynth/blob/master/screenshot.png "Screenshot")
+
 This is an example of a real-time Unity synthesizer with a Moog filter simulation.
 
 It has a monophonic pulse-width modulated square wave and a saw wave (using polyBLEP for band-limiting), with a sub sine wave (one octave lower), and a resonant Moog-simulation filter based on the Huovilainen model. The filter frequency is controlled by a simple ramp envelope, and the amplitude is controlled by an ADSR envelope.
