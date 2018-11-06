@@ -144,17 +144,18 @@ public class SequencerInspector : Editor
 
                 if (cx == 0 || cy == 0)
                 {
-                    color = new Color(0.2f, 0.2f, 0.2f);
+                    color = new Color(0.4f, 0.4f, 0.4f);
                 }
                 else
                 {
                     color += shade;
                 }
 
+                bool isGridLine = (cx == 0 || cy == 0);
 
                 if (isInsideMatrix)
                 {
-                    if (isNote && cx != 0 && cy != 0)
+                    if (isNote && (!isGridLine))
                     {
                         if (editMatrix)
                         {
@@ -165,9 +166,9 @@ public class SequencerInspector : Editor
                             color = Color.Lerp(color, new Color(0.7f, 0.2f, 1.0f), 0.7f);
                         }
                     }
-                    if (isMouseInCell && editMatrix)
+                    if (isMouseInCell && editMatrix && (!isGridLine))
                     {
-                        color = Color.Lerp(color, Color.blue, 0.2f);
+                        color = Color.Lerp(color, Color.blue, 0.4f);
                     }
                     if (isCurrentSeqIdx)
                     {
