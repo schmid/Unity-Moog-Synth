@@ -38,6 +38,9 @@ public class SequencerInspector : Editor
     const int matrixGuiSizeX = textureSizeX * matrixScale;
     const int matrixGuiSizeY = textureSizeY * matrixScale;
 
+    /// State
+    private bool editMatrix = false;
+
     /// Cache
     [System.NonSerialized]
     static Texture2D matrixTexture = null;
@@ -56,6 +59,7 @@ public class SequencerInspector : Editor
 
         EnsureInit();
         DrawDefaultInspector();
+        editMatrix = EditorGUILayout.Toggle("Edit matrix", editMatrix);
 
         var rect = GUILayoutUtility.GetRect (matrixGuiSizeX, matrixGuiSizeY, GUILayout.ExpandWidth(false));
 
@@ -68,7 +72,7 @@ public class SequencerInspector : Editor
         {
             UpdateMatrix(parent, new Vector2(mouseX, mouseY));
         }
-        if(Event.current.type == EventType.MouseDown)
+        if(editMatrix && (Event.current.type == EventType.MouseDown))
         {
             int mouseCellX = (int)mouseX / gridSize / matrixScale;
             int mouseCellY = (int)mouseY / gridSize / matrixScale;
@@ -152,9 +156,16 @@ public class SequencerInspector : Editor
                 {
                     if (isNote && cx != 0 && cy != 0)
                     {
-                        color = Color.Lerp(color, Color.red, 0.7f);
+                        if (editMatrix)
+                        {
+                            color = Color.Lerp(color, Color.red, 0.7f);
+                        }
+                        else
+                        {
+                            color = Color.Lerp(color, new Color(0.7f, 0.2f, 1.0f), 0.7f);
+                        }
                     }
-                    if (isMouseInCell)
+                    if (isMouseInCell && editMatrix)
                     {
                         color = Color.Lerp(color, Color.blue, 0.2f);
                     }
