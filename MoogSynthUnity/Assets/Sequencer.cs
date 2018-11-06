@@ -25,22 +25,29 @@ public class Sequencer : MonoBehaviour
 {
     /// Static config
     private const Int64 queueBufferTime = 4096; // queue this amount of samples ahead
+    public const int maxLength = 32;
+    public const int restPitch = int.MinValue;
 
+    /// Config
     public MoogSynth synth;
     [Range(1, 2000)]
     public float tempo = 60;
     [Range(1, 32)]
     public int tempoSubdivision = 1;
+    [HideInInspector]
     public int[] pitch;
     [Range(0,120)]
     public int transpose = 48;
     [Range(0,120)]
     public int pitchRandomize = 0;
+    [Range(1,maxLength)]
+    public int length = 8;
+
+    /// State
     private Int64 nextNoteTime = 0;
-
     private float tempoOld = 60;
-
     private int seqIdx = 0;
+
 
     private void Start()
     {
@@ -68,25 +75,36 @@ public class Sequencer : MonoBehaviour
         bool queueSuccess = false; 
         while(time + queueBufferTime >= nextNoteTime)
         {
-            int seqLength = pitch.Length;
+            int seqLength = length;
             if (seqIdx >= seqLength)
             {
                 seqIdx = 0;
                 Debug.Log("seqIdx out of range, resetting");
             }
-            int notePitch = pitch[seqIdx] + transpose + UnityEngine.Random.Range(-pitchRandomize, pitchRandomize);
-            seqIdx = (seqIdx + 1) % seqLength;
 
-            Int64 noteOnTime = nextNoteTime;
-            Int64 noteOffTime = nextNoteTime + (Int64)(tempo_smpPerNote * 0.75f);
-            queueSuccess = synth.queue_event(EventQueue.EventType.Note_on, notePitch, noteOnTime);
-            //queueSuccess &= synth.queue_event(EventQueue.EventType.Note_off, 0, noteOffTime);
-            nextNoteTime += tempo_smpPerNote;
-            if (queueSuccess == false)
+            int seqPitch = pitch[seqIdx];
+
+            if (seqPitch != restPitch) // skip rests
             {
-                Debug.LogError("Event enqueue failed", this);
-                break;
+                int notePitch = seqPitch + transpose + UnityEngine.Random.Range(-pitchRandomize, pitchRandomize);
+
+                Int64 noteOnTime = nextNoteTime;
+                Int64 noteOffTime = nextNoteTime + (Int64)(tempo_smpPerNote * 0.75f);
+                queueSuccess = synth.queue_event(EventQueue.EventType.Note_on, notePitch, noteOnTime);
+                //queueSuccess &= synth.queue_event(EventQueue.EventType.Note_off, 0, noteOffTime);
+                if (queueSuccess == false)
+                {
+                    Debug.LogError("Event enqueue failed", this);
+                    break;
+                }
             }
+            seqIdx = (seqIdx + 1) % seqLength;
+            nextNoteTime += tempo_smpPerNote;
         }
+    }
+
+    public int getCurrentSeqIdx()
+    {
+        return (seqIdx + length - 2) % length; // FIXME, this is crap
     }
 }
