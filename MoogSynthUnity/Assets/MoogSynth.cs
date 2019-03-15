@@ -115,6 +115,7 @@ public class MoogSynth : MonoBehaviour
     ADSR aenv;
     // when note_is_on = true, wait for current_delta samples and set note_is_playing = true
     //bool note_is_playing;
+    bool is_initialized = false;
 
     // Current MIDI evt
     bool note_is_on;
@@ -251,19 +252,22 @@ public class MoogSynth : MonoBehaviour
         //    masterClock_smp += sampleFrames;
         //}
 
-        if (channels == 2)
+        if (is_initialized)
         {
-            int sampleFrames = data.Length / 2;
-            render_float32_stereo_interleaved(data, sampleFrames);
-
-            if (debugBufferEnabled)
+            if (channels == 2)
             {
-                //bufferLock = true;
-                lock (bufferMutex)
+                int sampleFrames = data.Length / 2;
+                render_float32_stereo_interleaved(data, sampleFrames);
+
+                if (debugBufferEnabled)
                 {
-                    Array.Copy(data, lastBuffer, data.Length);
+                    //bufferLock = true;
+                    lock (bufferMutex)
+                    {
+                        Array.Copy(data, lastBuffer, data.Length);
+                    }
+                    //bufferLock = false;
                 }
-                //bufferLock = false;
             }
         }
     }
@@ -298,6 +302,8 @@ public class MoogSynth : MonoBehaviour
         update_params();
 
         Reset();
+
+        is_initialized = true;
     }
 
     private void Reset()
